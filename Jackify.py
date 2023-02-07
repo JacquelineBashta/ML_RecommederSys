@@ -8,10 +8,10 @@ import seaborn as sns
 
 
 def prepare_data():
-    links_df = pd.read_csv("datasets\ml-latest-small\links.csv")
-    movies_df = pd.read_csv("datasets\ml-latest-small\movies.csv")
-    ratings_df = pd.read_csv("datasets\ml-latest-small\\ratings.csv")
-    tags_df = pd.read_csv("datasets\ml-latest-small\\tags.csv")
+    links_df = pd.read_csv("datasets/ml-latest-small/links.csv")
+    movies_df = pd.read_csv("datasets/ml-latest-small/movies.csv")
+    ratings_df = pd.read_csv("datasets/ml-latest-small/ratings.csv")
+    tags_df = pd.read_csv("datasets/ml-latest-small/tags.csv")
     return (links_df, movies_df, ratings_df, tags_df)
 
 
