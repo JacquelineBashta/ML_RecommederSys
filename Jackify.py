@@ -6,14 +6,12 @@ import seaborn as sns
 # To prepare requirements.txt file
 #print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
 
-rel_ds_path = "datasets\ml-latest-small"
 
-
-def prepare_data(path):
-    links_df = pd.read_csv(path + "\links.csv")
-    movies_df = pd.read_csv(path + "\movies.csv")
-    ratings_df = pd.read_csv(path + "\\ratings.csv")
-    tags_df = pd.read_csv(path + "\\tags.csv")
+def prepare_data():
+    links_df = pd.read_csv("datasets\ml-latest-small\links.csv")
+    movies_df = pd.read_csv("datasets\ml-latest-small\movies.csv")
+    ratings_df = pd.read_csv("datasets\ml-latest-small\\ratings.csv")
+    tags_df = pd.read_csv("datasets\ml-latest-small\\tags.csv")
     return (links_df, movies_df, ratings_df, tags_df)
 
 
@@ -52,7 +50,7 @@ def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode="Surprise Me!"):
     return rating_info[["title", "genres"]].reset_index().drop(columns="index")
 
 
-links_df, movies_df, ratings_df, tags_df = prepare_data(rel_ds_path)
+links_df, movies_df, ratings_df, tags_df = prepare_data()
 genres_list = get_genres_list(movies_df)
 
 st.title("Jackify Movie Recommender ")
