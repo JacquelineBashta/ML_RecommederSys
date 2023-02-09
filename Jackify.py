@@ -18,7 +18,10 @@ N_MOVIES = 10
 ###################################################################################
 # Static Functions
 ###################################################################################
-
+def do_config():
+    st.set_page_config(layout="wide")
+#-----------------------------------------------------------------------------------------#    
+    
 def prepare_data():
     links_df = pd.read_csv("datasets/ml-latest-small/links.csv")
     movies_df = pd.read_csv("datasets/ml-latest-small/movies.csv")
@@ -76,7 +79,7 @@ def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD):
 #-----------------------------------------------------------------------------------------#
 
 
-def recommend_similar_movies(n, chosen_movie_title, criteria):
+def get_item_based_recommendation(n, chosen_movie_title, criteria):
     chosen_movie_id = int(movies_df.query(
         "title == @chosen_movie_title").movieId)
 
@@ -139,8 +142,29 @@ def recommend_similar_movies(n, chosen_movie_title, criteria):
 
     return final_table[["title", "genres","movieId"]].reset_index().drop(columns=["index"])
 
-def do_config():
-    st.set_page_config(layout="wide")
+#-----------------------------------------------------------------------------------------#
+
+def get_user_based_recommendation( n=10, user_id= 1):
+    chosen_user = user_id
+    n_top = n
+    cross_table = pd.pivot_table(data=ratings_df, values="rating",columns="movieId",index="userId")
+    cross_table = cross_table.fillna(0)
+    
+    usrs_similarities = pd.DataFrame(cosine_similarity(cross_table),columns=cross_table.index, index=cross_table.index)
+    
+    user_weight_col = usrs_similarities.query("userId!=@chosen_user")[chosen_user]
+    weights = user_weight_col/sum(user_weight_col)
+    
+    not_rated_items = cross_table.loc[cross_table.index!=chosen_user , cross_table.loc[chosen_user,:]== 0 ]
+    predicted_rates = pd.DataFrame(not_rated_items.T.dot(weights),columns=["predicted_rates"])
+    
+    recommended_items = predicted_rates.merge(movies_df, on="movieId")[["title","genres","predicted_rates"]].nlargest(n_top,"predicted_rates")
+    
+    return recommended_items
+
+
+
+
 ###################################################################################
 # Start of the Website Page
 ###################################################################################
@@ -155,9 +179,10 @@ st.markdown('&nbsp;')
 #     st.write("Test ")
 
 
-genres_list = get_genres_list(movies_df)
+## Popularity recommendation
 with st.container():
     st.header("What is your mood today ?")
+    genres_list = get_genres_list(movies_df)
     option = st.selectbox("", genres_list)
     if option != DEFAULT_MOOD:
         st.write(f":clapper: Here is some highly rated movies for your mood :clapper:")
@@ -175,9 +200,13 @@ with st.container():
             #placeholder.empty()
             st.write(top_movies_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
 
+
+
 st.markdown('&nbsp;')
 st.markdown('&nbsp;')
 
+
+## Item based recommendation
 with st.container():
     all_movies = list(movies_df.title)
     all_movies.insert(0, "Select a Movie")
@@ -185,7 +214,7 @@ with st.container():
     title = st.selectbox("", all_movies)
     if title != "Select a Movie":
         st.write(f" :heart: Because you loved {title}, you might enjoy these movies :heart:")
-        similar_movie_list = recommend_similar_movies(N_MOVIES*2, title, "50_plus_rate_count")
+        similar_movie_list = get_item_based_recommendation(N_MOVIES*2, title, "50_plus_rate_count")
         
         similar_movie_list.title=similar_movie_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
         similar_movie_list = similar_movie_list.drop(columns="movieId")
