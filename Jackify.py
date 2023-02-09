@@ -16,16 +16,29 @@ RANDOM_MOOD = "Surprise Me!"
 NO_MOVIE_SELECTED  = "Select a Movie"
 N_MOVIES = 10
 
-
+key_count = 0
 ###################################################################################
 # Static Functions
 ###################################################################################
+def get_unique_key():
+    global key_count
+    key_count +=1
+    return key_count
+
+#-----------------------------------------------------------------------------------------#   
+ 
+def weighted_rating(x, m, C):
+    v = x['rate_count']
+    R = x['rate_mean']
+    return (v/(v+m) * R) + (m/(m+v) * C)
+#-----------------------------------------------------------------------------------------#    
+
 def do_config():
     st.set_page_config(
     page_title="Jackify Recommender",
     layout="wide")
 #-----------------------------------------------------------------------------------------#    
-    
+
 def prepare_data():
     links_df = pd.read_csv("datasets/ml-latest-small/links.csv")
     movies_df = pd.read_csv("datasets/ml-latest-small/movies.csv")
@@ -44,7 +57,6 @@ def construct_imdb_url(movie_id):
     return (url)
 #-----------------------------------------------------------------------------------------#
 
-
 def get_genres_list(movies):
     all_genres_l = movies.genres.str.split("|").sum()
     unique_genres_l = []
@@ -58,13 +70,8 @@ def get_genres_list(movies):
 
     return (unique_genres_l)
 #-----------------------------------------------------------------------------------------#
-key_count = 0
-def get_unique_key():
-    global key_count
-    key_count +=1
-    return key_count
 
-def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD):
+def get_popularity_recommendation(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD,criteria="weighted rate"):
 
     rating_info = (
         ratings_df
@@ -72,26 +79,47 @@ def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD):
         .agg(rate_mean=("rating", "mean"), rate_count=("rating", "count"))
         .reset_index()
     )
-    rating_info["weighted_score"] = (
-        rating_info.rate_count/rating_info.rate_count.sum()) * rating_info.rate_mean
+    if criteria == "weighted rate":
+        rating_info["weighted_score"] = (rating_info.rate_count/rating_info.rate_count.sum()) * rating_info.rate_mean
+        rating_info = rating_info.merge(names_df,on="movieId", how="left")
+        
+        if mode != RANDOM_MOOD:
+            rating_info = rating_info.query("genres.str.contains(@mode)")
+            
+        rating_info = rating_info.nlargest(n_top, "weighted_score")
+        
+    elif criteria == "baysian average":
+        c = ratings_df.rating.mean()
+        m = (
+            ratings_df
+            .groupby("movieId")
+            .agg(rate_count=("rating","count"))
+            .reset_index()
+        ).rate_count.quantile(0.9)
+        
+        rating_info=(
+            ratings_df
+            .groupby("movieId")
+            .agg(rate_mean =("rating","mean"),rate_count=("rating","count"))
+            .reset_index()
+        )
 
-    rating_info = rating_info.merge(names_df, how="left")
-    if mode != RANDOM_MOOD:
-        rating_info = rating_info.query("genres.str.contains(@mode)")
+        rating_info = rating_info.loc[rating_info.rate_count >= m]
+        rating_info["rate_bayes"] = rating_info.apply(weighted_rating, axis=1,args=(m,c))
+        rating_info = rating_info.merge(names_df,on="movieId",how="left").nlargest(n_top,"rate_bayes")
+        if mode != RANDOM_MOOD:
+            rating_info = rating_info.query("genres.str.contains(@mode)")
+        
 
-    rating_info = rating_info.nlargest(n_top, "weighted_score")
-
-    # return rating_info[["title", "genres", "weighted_score", "rate_mean", "rate_count"]].reset_index().drop(columns="index")
-    return rating_info[["title", "genres", "movieId"]].reset_index().drop(columns="index")
+    return rating_info[["title", "genres", "movieId"]].reset_index(drop=True)
 
 #-----------------------------------------------------------------------------------------#
-
 
 def get_item_based_recommendation(n, chosen_movie_title, criteria):
     chosen_movie_id = int(movies_df.query("title == @chosen_movie_title").movieId)
 
     cross_table = pd.pivot_table(data=ratings_df, values="rating", columns="movieId", index="userId")
-
+    
     corr_table = pd.DataFrame({})
     corr_table["cross_corr"] = cross_table.corrwith(cross_table[chosen_movie_id]).dropna().drop(chosen_movie_id)
 
@@ -115,33 +143,16 @@ def get_item_based_recommendation(n, chosen_movie_title, criteria):
             .agg(rate_mean=("rating", "mean"), rate_count=("rating", "count"))
             .reset_index())
 
-        rating["weighted_rate"] = (rating.rate_count/rating.rate_count.sum()) * rating.rate_mean
-        #print(rating.weighted_rate.min(), rating.weighted_rate.max())
+        rating["weighted_rate"] = (rating.rate_count/rating.rate_count.sum()) *100* rating.rate_mean
+        weighted_rate_threshold = (rating.weighted_rate.max()-rating.weighted_rate.min())/2
         final_table = (
             corr_table_view
             .merge(rating, on="movieId")
-            .query("weighted_rate >= 0.2")
+            .query("weighted_rate >= @weighted_rate_threshold")
             .nlargest(n, "cross_corr")
         )
-
-    elif criteria == "bayes_average":
-        rating = (
-            ratings_df
-            .groupby("movieId")
-            .agg(rate_mean=("rating", "mean"), rate_count=("rating", "count"))
-            .reset_index())
-        m = rating.rate_count.quantile(0.95)
-        c = rating.rate_mean.mean()
-        qualified_movies = rating[(rating.rate_count > m)
-                                  & (rating.rate_mean > c)]
-        qualified_movies = qualified_movies.assign(weighted_rate=lambda x: (
-            x.rate_count / (x.rate_count + m)*x.rate_mean) + (m/(x.rate_count + m)*c))
-        top_movies = qualified_movies.sort_values(
-            "weighted_rate", ascending=False)
         
-
     return final_table[["title", "genres","movieId"]].reset_index().drop(columns=["index"])
-
 #-----------------------------------------------------------------------------------------#
 
 def get_user_based_recommendation( inp_ratings_df,n=10, user_id= 1):
@@ -168,6 +179,7 @@ def get_user_based_recommendation( inp_ratings_df,n=10, user_id= 1):
 ###################################################################################
 
 do_config()
+
 links_df, movies_df, ratings_df, tags_df = prepare_data()
 
 st.title(":violet[Jackify Movie Recommender] ")
@@ -178,25 +190,30 @@ st.markdown('&nbsp;')
 
 
 ## Popularity recommendation
+###############################
 with st.container():
     st.header("What is your mood today ?")
     genres_list = get_genres_list(movies_df)
-    option = st.selectbox(label="", options=genres_list,label_visibility='collapsed',key=get_unique_key())
+    option = st.selectbox(label="", options=genres_list,key=get_unique_key())
     if option != DEFAULT_MOOD:
-        st.write(f":clapper: Here is some highly rated movies for your mood :clapper:")
-        top_movies_list = n_top_movies_weighted(n_top=N_MOVIES*2
+        
+        top_movies_list = get_popularity_recommendation(n_top=N_MOVIES*2
                                                 , names_df=movies_df
                                                 , ratings_df=ratings_df
-                                                , mode=option)
-
-        top_movies_list.title=top_movies_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
-        top_movies_list = top_movies_list.drop(columns="movieId")
-        st.write(top_movies_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
-        placeholder = st.empty()
-        isclick = placeholder.button(label='More',key=get_unique_key())
-        if isclick:
-            #placeholder.empty()
-            st.write(top_movies_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+                                                , mode=option
+                                                , criteria="baysian average")
+        if len(top_movies_list) != 0:
+            st.write(f":clapper: Here is some popular movies for your mood :clapper:")
+            top_movies_list.title=top_movies_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+            top_movies_list = top_movies_list.drop(columns="movieId")
+            st.write(top_movies_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+            placeholder = st.empty()
+            isclick = placeholder.button(label='More',key=get_unique_key())
+            if isclick:
+                #placeholder.empty()
+                st.write(top_movies_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+        else:
+            st.info("Sorry my Database is teeny-tiny .. There is no popular Movies with that mood :pleading_face: ")
 
 
 
@@ -205,29 +222,35 @@ st.markdown('&nbsp;')
 
 
 ## Item based recommendation
+###############################
 with st.container():
     all_movies = list(movies_df.title)
     all_movies.insert(0, NO_MOVIE_SELECTED)
     st.header("Tell me a Movie that you like")
     title = st.selectbox("", all_movies)
     if title != NO_MOVIE_SELECTED:
-        st.write(f" :heart: Because you loved {title}, you might enjoy these movies :heart:")
-        similar_movie_list = get_item_based_recommendation(N_MOVIES*2, title, "50_plus_rate_count")
-        
-        similar_movie_list.title=similar_movie_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
-        similar_movie_list = similar_movie_list.drop(columns="movieId")
-        
-        
-        st.write(similar_movie_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
-        placeholder2 = st.empty()
-        isclick2 = placeholder2.button(label='More',key=get_unique_key())
-        if isclick2:
-            st.write(similar_movie_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+        similar_movie_list = get_item_based_recommendation(N_MOVIES*2, title, "weighted_rate")
+        if len(similar_movie_list) != 0:
+            st.write(f" :heart: Because you loved {title}, you might enjoy these movies :heart:")
+            similar_movie_list.title=similar_movie_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+            similar_movie_list = similar_movie_list.drop(columns="movieId")
+            
+            
+            st.write(similar_movie_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+            placeholder2 = st.empty()
+            isclick2 = placeholder2.button(label='More',key=get_unique_key())
+            if isclick2:
+                st.write(similar_movie_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+        else:
+            st.info(f"Sorry my Database is teeny-tiny .. There is no Movies Similar enough to {title} :pleading_face: ")
 
 
 st.markdown('&nbsp;')
 st.markdown('&nbsp;')
 
+
+## User based recommendation
+###############################
 #N_MOVIES_TO_RATE = ratings_df.groupby("userId").agg(movies_count=("movieId","count")).movies_count.min()
 N_MOVIES_TO_RATE = 5
 RATING_MIN = float(ratings_df.rating.unique().min())
@@ -236,7 +259,7 @@ RATING_MID = ((RATING_MAX-RATING_MIN)/2) + RATING_MIN
 
 movies_l=[]
 rating_l=[]
-## User based recommendation
+
 with st.container():
     all_movies = list(movies_df.title)
     all_movies.insert(0, NO_MOVIE_SELECTED)
@@ -255,9 +278,7 @@ with st.container():
     elif (len(movies_l) != len(set(movies_l))):
         st.warning(f"Please rate {N_MOVIES_TO_RATE} different movies")
     else:
-        #st.write('movies_l:', movies_l)
-        #st.write('rating:',rating_l)
-        # fill new user data
+        # add new user data to the database
         ratings_ex_df = ratings_df.copy()
         user_id_ex = int(ratings_df.userId.max()+1)
         for i,movie in enumerate(movies_l):
@@ -266,16 +287,18 @@ with st.container():
             new_row = {'userId':user_id_ex, 'movieId':movie_id_ex, 'rating':rating_ex, 'timestamp':0}
             ratings_ex_df = pd.concat([ratings_ex_df,pd.DataFrame([new_row])],ignore_index=True)
         user_based_list = get_user_based_recommendation( ratings_ex_df,N_MOVIES*2, user_id_ex)
-        user_based_list.title=user_based_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
-        user_based_list = user_based_list.reset_index().drop(columns=["movieId","predicted_rates","index"])
-        
-        
-        st.write(user_based_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
-        placeholder2 = st.empty()
-        isclick2 = placeholder2.button(label='More',key=get_unique_key())
-        if isclick2:
-            st.write(user_based_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
-
-
+        if len(user_based_list) != 0:
+            st.write("These Movies might fit yout taste")
+            user_based_list.title=user_based_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+            user_based_list = user_based_list.reset_index().drop(columns=["movieId","predicted_rates","index"])
+            
+            
+            st.write(user_based_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+            placeholder2 = st.empty()
+            isclick2 = placeholder2.button(label='More',key=get_unique_key())
+            if isclick2:
+                st.write(user_based_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+        else:
+            st.info(f"Sorry my Database is teeny-tiny .. There is no Movies to your taste :pleading_face: ")
 
 #st.balloons()
