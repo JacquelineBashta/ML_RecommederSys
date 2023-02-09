@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import time
+from sklearn.metrics.pairwise import cosine_similarity
 
 # To prepare requirements.txt file
 # print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
@@ -183,7 +184,7 @@ st.markdown('&nbsp;')
 with st.container():
     st.header("What is your mood today ?")
     genres_list = get_genres_list(movies_df)
-    option = st.selectbox("", genres_list)
+    option = st.selectbox(label="", options=genres_list,label_visibility='collapsed')
     if option != DEFAULT_MOOD:
         st.write(f":clapper: Here is some highly rated movies for your mood :clapper:")
         top_movies_list = n_top_movies_weighted(n_top=N_MOVIES*2
@@ -195,7 +196,7 @@ with st.container():
         top_movies_list = top_movies_list.drop(columns="movieId")
         st.write(top_movies_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
         placeholder = st.empty()
-        isclick = placeholder.button('More')
+        isclick = placeholder.button(label='More')
         if isclick:
             #placeholder.empty()
             st.write(top_movies_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
@@ -222,8 +223,41 @@ with st.container():
         
         st.write(similar_movie_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
         placeholder2 = st.empty()
-        isclick2 = placeholder2.button('More',key=2)
+        isclick2 = placeholder2.button(label='More',key=2)
         if isclick2:
             st.write(similar_movie_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
 
-st.balloons()
+
+st.markdown('&nbsp;')
+st.markdown('&nbsp;')
+
+def shoe_updated_movie_rate(selected_movies_l,rates_l):
+    selected_movies_df = pd.DataFrame({
+            "Movie":[selected_movies_l],
+            "Given Rate":[rates_l]
+        })
+## User based recommendation
+with st.container():
+    all_movies = list(movies_df.title)
+    all_movies.insert(0, "Select a Movie")
+    st.header("Rate at least 5 Movies ( rates from 1 to 10)")
+    
+    movie_1 = st.selectbox("", all_movies,key=2)
+    selected_movies_l=[]
+    rates_l=[]
+    if title != "Select a Movie":
+        
+        st.write(f" :heart: Because you loved {title}, you might enjoy these movies :heart:")
+        similar_movie_list = get_item_based_recommendation(N_MOVIES*2, title, "50_plus_rate_count")
+        
+        similar_movie_list.title=similar_movie_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+        similar_movie_list = similar_movie_list.drop(columns="movieId")
+        
+        
+        st.write(similar_movie_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+        placeholder2 = st.empty()
+        isclick2 = placeholder2.button(label='More',key=2)
+        if isclick2:
+            st.write(similar_movie_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+
+st.snow()
