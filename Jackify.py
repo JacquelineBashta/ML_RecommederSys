@@ -1,15 +1,24 @@
-
+from IPython.display import HTML
 import streamlit as st
 import pandas as pd
+import numpy as np
+import time
 
 # To prepare requirements.txt file
-#print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
+# print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
+
+
+###################################################################################
+# Global Variables
+###################################################################################
 DEFAULT_MOOD = "Choose a Mood"
 RANDOM_MOOD = "Surprise Me!"
+N_MOVIES = 10
+
+
 ###################################################################################
 # Static Functions
-################################################################################
-
+###################################################################################
 
 def prepare_data():
     links_df = pd.read_csv("datasets/ml-latest-small/links.csv")
@@ -17,6 +26,17 @@ def prepare_data():
     ratings_df = pd.read_csv("datasets/ml-latest-small/ratings.csv")
     tags_df = pd.read_csv("datasets/ml-latest-small/tags.csv")
     return (links_df, movies_df, ratings_df, tags_df)
+#-----------------------------------------------------------------------------------------#
+
+
+def construct_imdb_url(movie_id):
+    imdb_tag = int(links_df.query("movieId == @movie_id").imdbId)
+    imdb_tag = str(imdb_tag).rjust(7, "0")
+    imdb_tag = "tt"+imdb_tag
+
+    url = "https://www.imdb.com/title/"+imdb_tag
+    return (url)
+#-----------------------------------------------------------------------------------------#
 
 
 def get_genres_list(movies):
@@ -31,6 +51,7 @@ def get_genres_list(movies):
     unique_genres_l.insert(0, DEFAULT_MOOD)
 
     return (unique_genres_l)
+#-----------------------------------------------------------------------------------------#
 
 
 def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD):
@@ -51,7 +72,9 @@ def n_top_movies_weighted(names_df, ratings_df, n_top=10, mode=RANDOM_MOOD):
     rating_info = rating_info.nlargest(n_top, "weighted_score")
 
     # return rating_info[["title", "genres", "weighted_score", "rate_mean", "rate_count"]].reset_index().drop(columns="index")
-    return rating_info[["title", "genres"]].reset_index().drop(columns="index")
+    return rating_info[["title", "genres", "movieId"]].reset_index().drop(columns="index")
+
+#-----------------------------------------------------------------------------------------#
 
 
 def recommend_similar_movies(n, chosen_movie_title, criteria):
@@ -70,8 +93,7 @@ def recommend_similar_movies(n, chosen_movie_title, criteria):
         ["title", "genres", "cross_corr", "movieId"]]
 
     if criteria == "n_largest_corr":
-        final_table = corr_table_view.drop(
-            columns="movieId").nlargest(n, "cross_corr")
+        final_table = corr_table_view.nlargest(n, "cross_corr")
 
     elif criteria == "50_plus_rate_count":
         rating = ratings_df.groupby("movieId").agg(
@@ -79,7 +101,6 @@ def recommend_similar_movies(n, chosen_movie_title, criteria):
         final_table = (
             corr_table_view
             .merge(rating, on="movieId")
-            .drop(columns="movieId")
             .query("rate_count >= 50")
             .nlargest(n, "cross_corr")
         )
@@ -97,26 +118,39 @@ def recommend_similar_movies(n, chosen_movie_title, criteria):
         final_table = (
             corr_table_view
             .merge(rating, on="movieId")
-            .drop(columns="movieId")
             .query("weighted_rate >= 0.2")
             .nlargest(n, "cross_corr")
         )
 
     elif criteria == "bayes_average":
-        # TODO: implement it
-        pass
+        rating = (
+            ratings_df
+            .groupby("movieId")
+            .agg(rate_mean=("rating", "mean"), rate_count=("rating", "count"))
+            .reset_index())
+        m = rating.rate_count.quantile(0.95)
+        c = rating.rate_mean.mean()
+        qualified_movies = rating[(rating.rate_count > m)
+                                  & (rating.rate_mean > c)]
+        qualified_movies = qualified_movies.assign(weighted_rate=lambda x: (
+            x.rate_count / (x.rate_count + m)*x.rate_mean) + (m/(x.rate_count + m)*c))
+        top_movies = qualified_movies.sort_values(
+            "weighted_rate", ascending=False)
+        
 
-    return final_table
+    return final_table[["title", "genres","movieId"]].reset_index().drop(columns=["index"])
+
+def do_config():
+    st.set_page_config(layout="wide")
 ###################################################################################
 # Start of the Website Page
-###########################################################################
+###################################################################################
 
-
+do_config()
 links_df, movies_df, ratings_df, tags_df = prepare_data()
 
-
-st.title("Jackify Movie Recommender ")
-
+st.title(":violet[Jackify Movie Recommender] ")
+st.markdown('&nbsp;')
 
 # with st.expander(" :cinema: **About Jackyfy** :cinema:"):
 #     st.write("Test ")
@@ -124,29 +158,44 @@ st.title("Jackify Movie Recommender ")
 
 genres_list = get_genres_list(movies_df)
 with st.container():
-    option = st.selectbox('What is your mood today ?', genres_list)
+    st.header("What is your mood today ?")
+    option = st.selectbox("", genres_list)
     if option != DEFAULT_MOOD:
-        top_movies_list = n_top_movies_weighted(
-            n_top=50, names_df=movies_df, ratings_df=ratings_df, mode=option)
-        st.write(
-            f":clapper: Here is some highly rated movies for your mood :clapper:")
-        st.write(top_movies_list[0:10])
-        if st.button('More', key=1):
-            st.write(top_movies_list[10:20])
+        st.write(f":clapper: Here is some highly rated movies for your mood :clapper:")
+        top_movies_list = n_top_movies_weighted(n_top=N_MOVIES*2
+                                                , names_df=movies_df
+                                                , ratings_df=ratings_df
+                                                , mode=option)
 
+        top_movies_list.title=top_movies_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+        top_movies_list = top_movies_list.drop(columns="movieId")
+        st.write(top_movies_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+        placeholder = st.empty()
+        isclick = placeholder.button('More')
+        if isclick:
+            #placeholder.empty()
+            st.write(top_movies_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
+
+st.markdown('&nbsp;')
+st.markdown('&nbsp;')
 
 with st.container():
     all_movies = list(movies_df.title)
     all_movies.insert(0, "Select a Movie")
-    title = st.selectbox('Tell me a Movie that you like', all_movies)
+    st.header("Tell me a Movie that you like")
+    title = st.selectbox("", all_movies)
     if title != "Select a Movie":
-        st.write(
-            f" :heart: Because you loved {title}, you might enjoy these ones :heart:")
-
-        similar_movie_list = recommend_similar_movies(
-            50, title, "50_plus_rate_count")
-        st.write(similar_movie_list[0:10])
-        if st.button('More', key=2):
-            st.write(similar_movie_list[10:20])
+        st.write(f" :heart: Because you loved {title}, you might enjoy these movies :heart:")
+        similar_movie_list = recommend_similar_movies(N_MOVIES*2, title, "50_plus_rate_count")
+        
+        similar_movie_list.title=similar_movie_list.apply(lambda x: f'<a target="_blank" href="{construct_imdb_url(x.movieId)}">{x.title}</a>',axis=1)
+        similar_movie_list = similar_movie_list.drop(columns="movieId")
+        
+        
+        st.write(similar_movie_list[0:N_MOVIES].to_html(escape=False), unsafe_allow_html=True)
+        placeholder2 = st.empty()
+        isclick2 = placeholder2.button('More',key=2)
+        if isclick2:
+            st.write(similar_movie_list[N_MOVIES:N_MOVIES*2].to_html(escape=False), unsafe_allow_html=True)
 
 st.balloons()
