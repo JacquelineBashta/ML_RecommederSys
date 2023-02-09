@@ -5,7 +5,7 @@ import time
 from sklearn.metrics.pairwise import cosine_similarity
 
 # To prepare requirements.txt file
-print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
+# print('\n'.join(f'{m.__name__}=={m.__version__}' for m in globals().values() if getattr(m, '__version__', None)))
 
 
 ###################################################################################
@@ -21,10 +21,8 @@ N_MOVIES = 10
 # Static Functions
 ###################################################################################
 def do_config():
-    #st.set_page_config(layout="wide")
     st.set_page_config(
-    page_title="Ex-stream-ly Cool App",
-    page_icon=":)",
+    page_title="Jackify Recommender",
     layout="wide")
 #-----------------------------------------------------------------------------------------#    
     
