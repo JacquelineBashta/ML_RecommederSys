@@ -284,7 +284,7 @@ rating_l=[]
 with st.container():
     all_movies = list(movies_df.title)
     all_movies.insert(0, NO_MOVIE_SELECTED)
-    st.header(f"Tell me your preferences")
+    st.header(f"Can you rate 5 Movies of your selection ")
     
     for n in range(N_MOVIES_TO_RATE):
         col1, col2 = st.columns([3,1])
