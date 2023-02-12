@@ -40,3 +40,11 @@ trade-off between building trust with the user and not scaring them away.
 
 ### User Based Recommender
 Provides  Serendipity (is an item that you may like but is a surprise, something a little outside of your normal purview)
+
+
+
+
+## Notes
+1. impute missing rating with 0 is trivial.. Other ways shall be explored
+2. Convert sparse matrix to more dense matrix (Matrix factorization)
+3. explore surprise lib from python for recommenders
